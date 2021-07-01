@@ -17,6 +17,7 @@ void driver_set_speed(uint16_t speed, int16_t steering);
 
 void driver_set_brake(brake_mode_t brake);
 brake_mode_t driver_get_brake(void);
+void driver_emergency_brake(void);
 
 void driver_init(void);
 

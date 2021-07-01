@@ -130,6 +130,16 @@ brake_mode_t driver_get_brake(void)
     return brake_mode;
 }
 
+void driver_emergency_brake(void)
+{
+    driver_set_brake(BRAKE_MODE_MAX);
+    
+    ledc_set_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel, 0);
+    ledc_set_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel, 0);
+    ledc_update_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel);
+    ledc_update_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel);
+}
+
 void driver_init(void)
 {
     gpio_config_t io_conf;
@@ -170,7 +180,7 @@ void driver_init(void)
     io_conf.pull_down_en = 0;
     io_conf.pull_up_en = 0;
     gpio_config(&io_conf);
-    
+
     driver_set_direction(true);
     // xTaskCreate(driver_test, "driver_test", 2048, (void *) 0, 10, NULL);
 }

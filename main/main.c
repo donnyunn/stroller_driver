@@ -17,6 +17,13 @@
 
 #define TAG "rotom app"
 
+typedef enum {
+    WORK_INIT = 0,
+    WORK_ADVERTISING,
+    WORK_CONNECTED,
+} main_work_t;
+main_work_t work = WORK_INIT;
+
 ble_spp_server_t spp;
 packet_t packet;
 
@@ -24,36 +31,47 @@ void app_main(void)
 {
     uint8_t * spp_data;
 
-    driver_init();
-    ble_spp_server_init(&spp);
-
     while (1) {
-        // disconnect event
-        if (!isConnected()) {
-            driver_set_brake(BRAKE_MODE_MAX);
-            driver_set_speed(0, 0);
-            vTaskDelay(10/portTICK_PERIOD_MS);
-        }
-
-        // receive event
-        if (xQueueReceive(spp.data_queue, &spp_data, 10/portTICK_RATE_MS)) {
-            // spp_debug((char *)spp_data, 10);
-            pakcet_decoding(&packet, spp_data, 10);
-            free(spp_data);
-
-            if (packet.brake != 0) {
-                // emergency brake
-                driver_set_brake(BRAKE_MODE_MAX);
-            } else {
-                // forward or backward
-                if (packet.forward < 0) {
-                    driver_set_direction(false);
-                    driver_set_speed((uint16_t)(-1 * packet.forward), packet.clockwise);
+        switch (work) {
+            case WORK_INIT:
+                driver_init();
+                ble_spp_server_init(&spp);
+                work = WORK_ADVERTISING;
+            break;
+            case WORK_ADVERTISING:
+                if (isConnected()) {
+                    work = WORK_CONNECTED;
                 } else {
-                    driver_set_direction(true);
-                    driver_set_speed((uint16_t)packet.forward, packet.clockwise);
+                    vTaskDelay(100/portTICK_PERIOD_MS);
                 }
-            }            
+            break;
+            case WORK_CONNECTED:
+                // receive event
+                if (xQueueReceive(spp.data_queue, &spp_data, 500/portTICK_RATE_MS)) {
+                    // spp_debug((char *)spp_data, 10);
+                    pakcet_decoding(&packet, spp_data, 10);
+                    free(spp_data);
+
+                    if (packet.brake != 0) {
+                        // emergency brake
+                        driver_set_brake(BRAKE_MODE_MAX);
+                    } else {
+                        // forward or backward
+                        if (packet.forward < 0) {
+                            driver_set_direction(false);
+                            driver_set_speed((uint16_t)(-1 * packet.forward), packet.clockwise);
+                        } else {
+                            driver_set_direction(true);
+                            driver_set_speed((uint16_t)packet.forward, packet.clockwise);
+                        }
+                    }            
+                } else {
+                    driver_emergency_brake();
+                    if (!isConnected()) {
+                        work = WORK_CONNECTED;
+                    }
+                }
+            break;
         }
     }
 }
