@@ -64,26 +64,18 @@ void app_main(void)
                         if (packet.forward < 0) {
                             driver_set_direction(false);
                             temp = (uint16_t)(-1 * packet.forward);
-                            if (temp > driver.speed) {
-                                driver.speed = (15*driver.speed + temp)>>4;
-                            } else {
-                                // driver.speed = temp;
-                                driver.speed = (15*driver.speed + temp)>>4;
-                            }
-                            driver_set_speed(driver.speed, packet.clockwise);
-                            // driver_set_speed((uint16_t)(-1 * packet.forward), packet.clockwise);
-                        } else {
+                        } else if (packet.forward > 0) {
                             driver_set_direction(true);
                             temp = packet.forward;
-                            if (temp > driver.speed) {
-                                driver.speed = (15*driver.speed + temp)>>4;
-                            } else {
-                                // driver.speed = temp;
-                                driver.speed = (15*driver.speed + temp)>>4;
-                            }
-                            driver_set_speed(driver.speed, packet.clockwise);
-                            // driver_set_speed((uint16_t)packet.forward, packet.clockwise);
+                        } else {
+                            temp = 0;
                         }
+                        if (temp > driver.speed) {
+                            driver.speed = (15*driver.speed + temp)>>4;
+                        } else {
+                            driver.speed = (15*driver.speed + temp)>>4;
+                        }
+                        driver_set_speed(driver.speed, packet.clockwise);
                     }            
                 } else {
                     driver_emergency_brake();

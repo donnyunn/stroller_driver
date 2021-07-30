@@ -11,6 +11,8 @@
 #define ZF2_IO  GPIO_NUM_5
 #define EL1_IO  GPIO_NUM_25
 #define EL2_IO  GPIO_NUM_26
+#define M1_IO   GPIO_NUM_22
+#define M2_IO   GPIO_NUM_23
 
 #define LEDC_CH_NUM       (2)
 #define LEDC_FADE_TIME    (50)
