@@ -54,7 +54,7 @@ void driver_set_speed(uint16_t speed, int16_t steering)
     int16_t diff;
 
     // variable limit
-    if (speed > 2047) speed = 2047;
+    if (speed > 1700) speed = 1700;
     else if (speed < 16) speed = 0;
 
     if (speed != 0) {
@@ -123,6 +123,10 @@ void driver_set_brake(brake_mode_t brake)
             dac_output_voltage(DAC_CHANNEL_2, 255);
         break;
     }
+    ledc_set_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel, 0);
+    ledc_set_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel, 0);
+    ledc_update_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel);
+    ledc_update_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel);
 }
 
 brake_mode_t driver_get_brake(void)

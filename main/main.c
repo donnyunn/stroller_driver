@@ -26,10 +26,14 @@ main_work_t work = WORK_INIT;
 
 ble_spp_server_t spp;
 packet_t packet;
+driver_t driver = {
+    .speed = 0,
+};
 
 void app_main(void)
 {
     uint8_t * spp_data;
+    uint16_t temp;
 
     while (1) {
         switch (work) {
@@ -59,10 +63,26 @@ void app_main(void)
                         // forward or backward
                         if (packet.forward < 0) {
                             driver_set_direction(false);
-                            driver_set_speed((uint16_t)(-1 * packet.forward), packet.clockwise);
+                            temp = (uint16_t)(-1 * packet.forward);
+                            if (temp > driver.speed) {
+                                driver.speed = (15*driver.speed + temp)>>4;
+                            } else {
+                                // driver.speed = temp;
+                                driver.speed = (15*driver.speed + temp)>>4;
+                            }
+                            driver_set_speed(driver.speed, packet.clockwise);
+                            // driver_set_speed((uint16_t)(-1 * packet.forward), packet.clockwise);
                         } else {
                             driver_set_direction(true);
-                            driver_set_speed((uint16_t)packet.forward, packet.clockwise);
+                            temp = packet.forward;
+                            if (temp > driver.speed) {
+                                driver.speed = (15*driver.speed + temp)>>4;
+                            } else {
+                                // driver.speed = temp;
+                                driver.speed = (15*driver.speed + temp)>>4;
+                            }
+                            driver_set_speed(driver.speed, packet.clockwise);
+                            // driver_set_speed((uint16_t)packet.forward, packet.clockwise);
                         }
                     }            
                 } else {
