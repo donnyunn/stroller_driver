@@ -5,6 +5,13 @@
 
 #define TAG "motor driver"
 
+#define TIMER_DIVIDER         16  //  Hardware timer clock divider
+#define TIMER_SCALE           (TIMER_BASE_CLK / TIMER_DIVIDER)  // convert counter value to seconds
+#define TIMER_INTERVAL0_SEC   (3.4179) // sample test interval for the first timer
+#define TIMER_INTERVAL1_SEC   (5.78)   // sample test interval for the second timer
+#define TEST_WITHOUT_RELOAD   0        // testing will be done without auto reload
+#define TEST_WITH_RELOAD      1        // testing will be done with auto reload
+
 #define VR1_IO  GPIO_NUM_18
 #define VR2_IO  GPIO_NUM_19
 #define ZF1_IO  GPIO_NUM_4
@@ -15,7 +22,7 @@
 #define M2_IO   GPIO_NUM_23
 
 #define LEDC_CH_NUM       (2)
-#define LEDC_FADE_TIME    (50)
+#define LEDC_FADE_TIME    (100)
 
 ledc_channel_config_t ledc_channel[LEDC_CH_NUM] = {
     {
@@ -39,6 +46,33 @@ ledc_channel_config_t ledc_channel[LEDC_CH_NUM] = {
 brake_mode_t brake_mode = BRAKE_MODE_1;
 uint16_t speed_feedback[2] = {0,};
 
+xQueueHandle pwm_queue;
+typedef struct {
+    int type;  // the type of timer's event
+    int timer_group;
+    int timer_idx;
+    uint64_t timer_counter_value;
+} timer_event_t;
+xQueueHandle timer_queue;
+
+uint32_t pwm_num;
+
+static void IRAM_ATTR feedback_isr_handler(void* arg)
+{
+    uint32_t gpio_num = (uint32_t) arg;
+    xQueueSendFromISR(pwm_queue, &gpio_num, NULL);
+}
+
+uint16_t driver_get_speed(int num) {
+    if (num == 0) {
+        return speed_feedback[0];
+    } else if (num == 1) {
+        return speed_feedback[1];
+    } else {
+        return 0;
+    }
+}
+
 void driver_set_direction(bool dir)
 {
     if (dir) {
@@ -50,25 +84,38 @@ void driver_set_direction(bool dir)
     }
 }
 
+void driver_set_brake_mode(brake_mode_t mode)
+{
+    brake_mode = mode;
+}
+
+brake_mode_t driver_get_brake_mode(void)
+{
+    return brake_mode;
+}
+
 void driver_set_speed(uint16_t speed, int16_t steering)
 {
     uint32_t duty[2];
     int16_t diff;
 
     // variable limit
-    if (speed > 1700) speed = 1700;
+    if (speed > 1000) speed = 1000;
     else if (speed < 16) speed = 0;
+    if (steering > 1000) steering = 1000;
+    else if (steering < -1000) steering = -1000;
+    if ( (steering < 100) && (steering > -100) ) steering = 0;
 
     if (speed != 0) {
         // release brake
-        driver_set_brake(BRAKE_MODE_NONE);
+        // driver_set_brake(BRAKE_MODE_NONE);
 
         // calc duty with differencial
-        diff = (int16_t)(steering / 4);
-        if (diff > 16) {
+        diff = (int16_t)(steering / 10);
+        if (diff > 0) {
             duty[0] = speed;
             duty[1] = speed - diff;
-        } else if (diff < -16) {
+        } else if (diff < 0) {
             duty[0] = speed + diff;
             duty[1] = speed;
         } else {
@@ -77,14 +124,15 @@ void driver_set_speed(uint16_t speed, int16_t steering)
         }
 
         // start pwm
-        ledc_set_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel, duty[0]);
-        ledc_set_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel, duty[1]);
-        ledc_update_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel);
-        ledc_update_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel);
-        // ledc_set_fade_with_time(ledc_channel[0].speed_mode, ledc_channel[0].channel, speed, LEDC_FADE_TIME);
-        // ledc_set_fade_with_time(ledc_channel[1].speed_mode, ledc_channel[1].channel, speed, LEDC_FADE_TIME);
-        // ledc_fade_start(ledc_channel[0].speed_mode, ledc_channel[0].channel, LEDC_FADE_NO_WAIT);
-        // ledc_fade_start(ledc_channel[1].speed_mode, ledc_channel[1].channel, LEDC_FADE_NO_WAIT);        
+        // ledc_set_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel, duty[0]);
+        // ledc_set_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel, duty[1]);
+        // ledc_update_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel);
+        // ledc_update_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel);
+
+        ledc_set_fade_with_time(ledc_channel[0].speed_mode, ledc_channel[0].channel, duty[0], LEDC_FADE_TIME);
+        ledc_set_fade_with_time(ledc_channel[1].speed_mode, ledc_channel[1].channel, duty[1], LEDC_FADE_TIME);
+        ledc_fade_start(ledc_channel[0].speed_mode, ledc_channel[0].channel, LEDC_FADE_NO_WAIT);
+        ledc_fade_start(ledc_channel[1].speed_mode, ledc_channel[1].channel, LEDC_FADE_NO_WAIT);        
         
     } else {
         // stop pwm
@@ -116,8 +164,8 @@ void driver_set_brake(brake_mode_t brake)
             brake_mode = BRAKE_MODE_2;
         break;
         case BRAKE_MODE_3:
-            dac_output_voltage(DAC_CHANNEL_1, 255);
-            dac_output_voltage(DAC_CHANNEL_2, 255);
+            dac_output_voltage(DAC_CHANNEL_1, 192);
+            dac_output_voltage(DAC_CHANNEL_2, 192);
             brake_mode = BRAKE_MODE_3;
         break;
         case BRAKE_MODE_MAX:
@@ -146,6 +194,93 @@ void driver_emergency_brake(void)
     ledc_update_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel);
 }
 
+void IRAM_ATTR timer_group0_isr(void *para) 
+{
+    timer_spinlock_take(TIMER_GROUP_0);
+    int timer_idx = (int) para;
+
+    /* Retrieve the interrupt status and the counter value
+       from the timer that reported the interrupt */
+    uint32_t timer_intr = timer_group_get_intr_status_in_isr(TIMER_GROUP_0);
+    uint64_t timer_counter_value = timer_group_get_counter_value_in_isr(TIMER_GROUP_0, timer_idx);
+
+    /* Prepare basic event data
+       that will be then sent back to the main program task */
+    timer_event_t evt;
+    evt.timer_group = 0;
+    evt.timer_idx = timer_idx;
+    evt.timer_counter_value = timer_counter_value;
+
+    /* Clear the interrupt
+       and update the alarm time for the timer with without reload */
+    if (timer_intr & TIMER_INTR_T0) {
+        evt.type = TEST_WITHOUT_RELOAD;
+        timer_group_clr_intr_status_in_isr(TIMER_GROUP_0, TIMER_0);
+        timer_counter_value += (uint64_t) (TIMER_INTERVAL0_SEC * TIMER_SCALE);
+        timer_group_set_alarm_value_in_isr(TIMER_GROUP_0, timer_idx, timer_counter_value);
+    } else if (timer_intr & TIMER_INTR_T1) {
+        evt.type = TEST_WITH_RELOAD;
+        timer_group_clr_intr_status_in_isr(TIMER_GROUP_0, TIMER_1);
+    } else {
+        evt.type = -1; // not supported even type
+    }
+
+    /* After the alarm has been triggered
+      we need enable it again, so it is triggered the next time */
+    timer_group_enable_alarm_in_isr(TIMER_GROUP_0, timer_idx);
+
+    /* Now just send the event data back to the main program task */
+    xQueueSendFromISR(timer_queue, &evt, NULL);
+    timer_spinlock_give(TIMER_GROUP_0);
+}
+static void example_tg0_timer_init(int timer_idx,
+                                   bool auto_reload, double timer_interval_sec)
+{
+    /* Select and initialize basic parameters of the timer */
+    timer_config_t config = {
+        .divider = TIMER_DIVIDER,
+        .counter_dir = TIMER_COUNT_UP,
+        .counter_en = TIMER_PAUSE,
+        .alarm_en = TIMER_ALARM_EN,
+        .auto_reload = auto_reload,
+    }; // default clock source is APB
+    timer_init(TIMER_GROUP_0, timer_idx, &config);
+
+    /* Timer's counter will initially start from value below.
+       Also, if auto_reload is set, this value will be automatically reload on alarm */
+    timer_set_counter_value(TIMER_GROUP_0, timer_idx, 0x00000000ULL);
+
+    /* Configure the alarm value and the interrupt on alarm. */
+    timer_set_alarm_value(TIMER_GROUP_0, timer_idx, timer_interval_sec * TIMER_SCALE);
+    timer_enable_intr(TIMER_GROUP_0, timer_idx);
+    timer_isr_register(TIMER_GROUP_0, timer_idx, timer_group0_isr,
+                       (void *) timer_idx, ESP_INTR_FLAG_IRAM, NULL);
+
+    timer_start(TIMER_GROUP_0, timer_idx);
+}
+
+void driver_test(void* arg)
+{
+    while (1) {
+        timer_event_t evt;
+        if (xQueueReceive(pwm_queue, &pwm_num, 10/portTICK_RATE_MS)) {
+            if (M1_IO == pwm_num) {
+                speed_feedback[0]++;                
+            } else if (M2_IO == pwm_num) {
+                speed_feedback[1]++;
+            }
+        }
+        if (xQueueReceive(timer_queue, &evt, 10/portTICK_RATE_MS)) {
+            // ledc_update_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel);
+            // ledc_update_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel);
+            
+            ESP_LOGI(TAG, "%d,\t%d",speed_feedback[0],speed_feedback[1]);
+            speed_feedback[0] = 0;
+            speed_feedback[1] = 0;
+        }
+    }
+}
+
 void driver_init(void)
 {
     gpio_config_t io_conf;
@@ -153,7 +288,7 @@ void driver_init(void)
 
     ledc_timer_config_t ledc_timer = {
         .duty_resolution = LEDC_TIMER_11_BIT,
-        .freq_hz = 5000,
+        .freq_hz = 1000,
         .speed_mode = LEDC_LOW_SPEED_MODE,
         .timer_num = LEDC_TIMER_1,
         .clk_cfg = LEDC_AUTO_CLK,
@@ -187,6 +322,22 @@ void driver_init(void)
     io_conf.pull_up_en = 0;
     gpio_config(&io_conf);
 
+    // set hall feedback
+    pwm_queue = xQueueCreate(10, sizeof(uint32_t));
+    io_conf.intr_type = GPIO_PIN_INTR_NEGEDGE;
+    io_conf.pin_bit_mask = (1ULL<<M1_IO) | (1ULL<<M2_IO);
+    io_conf.mode = GPIO_MODE_INPUT;
+    io_conf.pull_down_en = 1;
+    io_conf.pull_up_en = 0;
+    gpio_config(&io_conf);
+    gpio_install_isr_service(ESP_INTR_FLAG_EDGE);
+    gpio_isr_handler_add(M1_IO, feedback_isr_handler, (void*)M1_IO);
+    gpio_isr_handler_add(M2_IO, feedback_isr_handler, (void*)M2_IO);
+
+    timer_queue = xQueueCreate(10, sizeof(timer_event_t));
+    // example_tg0_timer_init(TIMER_0, TEST_WITHOUT_RELOAD, TIMER_INTERVAL0_SEC);
+    example_tg0_timer_init(TIMER_1, TEST_WITH_RELOAD,    1);;
+
     driver_set_direction(true);
-    // xTaskCreate(driver_test, "driver_test", 2048, (void *) 0, 10, NULL);
+    xTaskCreate(driver_test, "driver_test", 2048, (void *) 0, 10, NULL);
 }

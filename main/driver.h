@@ -11,10 +11,21 @@ typedef enum {
     BRAKE_MODE_MAX
 } brake_mode_t;
 
+typedef enum {
+    DRIVE_MODE_STOP = 0,
+    DRIVE_MODE_FORWARD,
+    DRIVE_MODE_BACKWARD,
+} drive_mode_t;
+
 typedef struct {
+    bool direction;
     uint16_t speed;
+    int16_t steering;
 } driver_t;
 
+void driver_set_brake_mode(brake_mode_t mode);
+brake_mode_t driver_get_brake_mode(void);
+uint16_t driver_get_speed(int num);
 void driver_set_direction(bool dir);
 
 void driver_set_speed(uint16_t speed, int16_t steering);

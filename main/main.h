@@ -6,6 +6,8 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include "driver/uart.h"
+#include "driver/timer.h"
+#include "driver/gpio.h"
     
 #include "esp_bt.h"
 #include "nvs_flash.h"
@@ -22,8 +24,17 @@
 #include "sdkconfig.h"
 #include "string.h"
 
+#include "esp_types.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/queue.h"
+#include "driver/periph_ctrl.h"
+
 #include "ble_spp_server.h"
 #include "packet.h"
 #include "driver.h"
+#include "battery.h"
+#include "ledbar.h"
+#include "button.h"
 
 #endif /* __MAIN_H */
