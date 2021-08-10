@@ -103,7 +103,7 @@ void app_main(void)
                                     if (packet.forward > 0) {
                                         driver_set_brake(BRAKE_MODE_NONE);
                                         temp = abs(packet.forward);
-                                        driver.speed = (7*driver.speed + temp)>>3;
+                                        driver.speed = (15*driver.speed + temp)>>4;
                                         // driver.speed = temp;
                                         driver.steering = packet.clockwise;
                                         driver_set_speed(driver.speed, driver.steering);

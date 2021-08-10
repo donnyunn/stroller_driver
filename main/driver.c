@@ -100,7 +100,7 @@ void driver_set_speed(uint16_t speed, int16_t steering)
     int16_t diff;
 
     // variable limit
-    if (speed > 1000) speed = 1000;
+    if (speed > 500) speed = 500;
     else if (speed < 16) speed = 0;
     if (steering > 1000) steering = 1000;
     else if (steering < -1000) steering = -1000;
@@ -111,28 +111,28 @@ void driver_set_speed(uint16_t speed, int16_t steering)
         // driver_set_brake(BRAKE_MODE_NONE);
 
         // calc duty with differencial
-        diff = (int16_t)(steering / 10);
+        diff = (int16_t)(steering / 2);
         if (diff > 0) {
-            duty[0] = speed;
+            duty[0] = speed + diff;
             duty[1] = speed - diff;
         } else if (diff < 0) {
             duty[0] = speed + diff;
-            duty[1] = speed;
+            duty[1] = speed - diff;
         } else {
             duty[0] = speed;
             duty[1] = speed;
         }
 
         // start pwm
-        // ledc_set_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel, duty[0]);
-        // ledc_set_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel, duty[1]);
-        // ledc_update_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel);
-        // ledc_update_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel);
+        ledc_set_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel, duty[0]);
+        ledc_set_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel, duty[1]);
+        ledc_update_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel);
+        ledc_update_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel);
 
-        ledc_set_fade_with_time(ledc_channel[0].speed_mode, ledc_channel[0].channel, duty[0], LEDC_FADE_TIME);
-        ledc_set_fade_with_time(ledc_channel[1].speed_mode, ledc_channel[1].channel, duty[1], LEDC_FADE_TIME);
-        ledc_fade_start(ledc_channel[0].speed_mode, ledc_channel[0].channel, LEDC_FADE_NO_WAIT);
-        ledc_fade_start(ledc_channel[1].speed_mode, ledc_channel[1].channel, LEDC_FADE_NO_WAIT);        
+        // ledc_set_fade_with_time(ledc_channel[0].speed_mode, ledc_channel[0].channel, duty[0], LEDC_FADE_TIME);
+        // ledc_set_fade_with_time(ledc_channel[1].speed_mode, ledc_channel[1].channel, duty[1], LEDC_FADE_TIME);
+        // ledc_fade_start(ledc_channel[0].speed_mode, ledc_channel[0].channel, LEDC_FADE_NO_WAIT);
+        // ledc_fade_start(ledc_channel[1].speed_mode, ledc_channel[1].channel, LEDC_FADE_NO_WAIT);        
         
     } else {
         // stop pwm
