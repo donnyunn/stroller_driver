@@ -22,29 +22,35 @@
 #define M2_IO   GPIO_NUM_23
 
 #define LEDC_CH_NUM       (2)
-#define LEDC_FADE_TIME    (100)
+#define LEDC_FADE_TIME    (10)
 
-ledc_channel_config_t ledc_channel[LEDC_CH_NUM] = {
-    {
-        .channel = LEDC_CHANNEL_0,
-        .duty = 0,
-        .gpio_num = VR1_IO,
-        .speed_mode = LEDC_HIGH_SPEED_MODE,
-        .hpoint = 0,
-        .timer_sel = LEDC_TIMER_0
-    },
-    {
-        .channel = LEDC_CHANNEL_1,
-        .duty = 0,
-        .gpio_num = VR2_IO,
-        .speed_mode = LEDC_HIGH_SPEED_MODE,
-        .hpoint = 0,
-        .timer_sel = LEDC_TIMER_0
-    },
-};
+#define MAX_SPEED 1000
+#define MAX_STEERING 1000
+
+driver_t * this;
+
+// ledc_channel_config_t ledc_channel[LEDC_CH_NUM] = {
+//     {
+//         .channel = LEDC_CHANNEL_0,
+//         .duty = 0,
+//         .gpio_num = VR1_IO,
+//         .speed_mode = LEDC_HIGH_SPEED_MODE,
+//         .hpoint = 0,
+//         .timer_sel = LEDC_TIMER_2
+//     },
+//     {
+//         .channel = LEDC_CHANNEL_1,
+//         .duty = 0,
+//         .gpio_num = VR2_IO,
+//         .speed_mode = LEDC_HIGH_SPEED_MODE,
+//         .hpoint = 0,
+//         .timer_sel = LEDC_TIMER_2
+//     },
+// };
 
 brake_mode_t brake_mode = BRAKE_MODE_1;
 uint16_t speed_feedback[2] = {0,};
+uint16_t duty_result[2] = {0,};
 
 xQueueHandle pwm_queue;
 typedef struct {
@@ -57,10 +63,13 @@ xQueueHandle timer_queue;
 
 uint32_t pwm_num;
 
-static void IRAM_ATTR feedback_isr_handler(void* arg)
+// static void IRAM_ATTR feedback1_isr_handler(void* arg)
+// {
+//     speed_feedback[0]++;
+// }
+static void IRAM_ATTR feedback2_isr_handler(void* arg)
 {
-    uint32_t gpio_num = (uint32_t) arg;
-    xQueueSendFromISR(pwm_queue, &gpio_num, NULL);
+    speed_feedback[1]++;
 }
 
 uint16_t driver_get_speed(int num) {
@@ -98,12 +107,13 @@ void driver_set_speed(uint16_t speed, int16_t steering)
 {
     uint32_t duty[2];
     int16_t diff;
+    int16_t corr[2];
 
     // variable limit
-    if (speed > 500) speed = 500;
+    if (speed > MAX_SPEED) speed = MAX_SPEED;
     else if (speed < 16) speed = 0;
-    if (steering > 1000) steering = 1000;
-    else if (steering < -1000) steering = -1000;
+    if (steering > MAX_STEERING) steering = MAX_STEERING;
+    else if (steering < -MAX_STEERING) steering = -MAX_STEERING;
     if ( (steering < 100) && (steering > -100) ) steering = 0;
 
     if (speed != 0) {
@@ -112,22 +122,35 @@ void driver_set_speed(uint16_t speed, int16_t steering)
 
         // calc duty with differencial
         diff = (int16_t)(steering / 2);
-        if (diff > 0) {
-            duty[0] = speed + diff;
-            duty[1] = speed - diff;
-        } else if (diff < 0) {
-            duty[0] = speed + diff;
-            duty[1] = speed - diff;
-        } else {
-            duty[0] = speed;
-            duty[1] = speed;
-        }
+
+        // corr[0] = speed - (25 * this->speed_fb[0]);
+        corr[0] = speed - (25 * this->speed_fb[1]);
+        corr[1] = speed - (25 * this->speed_fb[1]);
+        if (corr[0] < -1000) corr[0] = -1000;
+        if (corr[1] < -1000) corr[1] = -1000;
+        // corr[0] = 0;
+        // corr[1] = 0;
+        duty[0] = speed + corr[0];
+        duty[1] = speed + corr[1];
+        duty[0] += diff;
+        duty[1] -= diff;
+
+        if (duty[0] > 2000) duty[0] = 2000;
+        if (duty[1] > 2000) duty[1] = 2000;
+
+        ESP_LOGI(TAG, "cmd:%d, fdb:%d, %d, cor:%d, %d, dut:%d, %d", speed, this->speed_fb[0], this->speed_fb[1], corr[0], corr[1], duty[0], duty[1]);
+        // ESP_LOGI(TAG, "cmd:%d, dut:%d, %d", speed, duty[0], duty[1]);
 
         // start pwm
-        ledc_set_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel, duty[0]);
-        ledc_set_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel, duty[1]);
-        ledc_update_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel);
-        ledc_update_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel);
+        duty_result[0] = duty[0];
+        duty_result[1] = duty[1];
+
+        // ledc_set_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel, duty[0]);
+        // ledc_set_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel, duty[1]);
+        // ledc_update_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel);
+        // ledc_update_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel);
+        mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, (uint32_t)(duty[0]/8));  
+        mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_0, MCPWM_OPR_A, (uint32_t)(duty[1]/8));  
 
         // ledc_set_fade_with_time(ledc_channel[0].speed_mode, ledc_channel[0].channel, duty[0], LEDC_FADE_TIME);
         // ledc_set_fade_with_time(ledc_channel[1].speed_mode, ledc_channel[1].channel, duty[1], LEDC_FADE_TIME);
@@ -136,10 +159,14 @@ void driver_set_speed(uint16_t speed, int16_t steering)
         
     } else {
         // stop pwm
-        ledc_set_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel, 0);
-        ledc_set_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel, 0);
-        ledc_update_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel);
-        ledc_update_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel);
+        duty_result[0] = 0;
+        duty_result[1] = 0;
+        // ledc_set_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel, 0);
+        // ledc_set_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel, 0);
+        // ledc_update_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel);
+        // ledc_update_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel);
+        mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, 0);  
+        mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_0, MCPWM_OPR_A, 0);  
         
         // hold brake
         driver_set_brake(brake_mode);
@@ -173,10 +200,12 @@ void driver_set_brake(brake_mode_t brake)
             dac_output_voltage(DAC_CHANNEL_2, 255);
         break;
     }
-    ledc_set_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel, 0);
-    ledc_set_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel, 0);
-    ledc_update_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel);
-    ledc_update_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel);
+    // ledc_set_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel, 0);
+    // ledc_set_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel, 0);
+    // ledc_update_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel);
+    // ledc_update_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel);
+    mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, 0);  
+    mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_0, MCPWM_OPR_A, 0);  
 }
 
 brake_mode_t driver_get_brake(void)
@@ -188,10 +217,12 @@ void driver_emergency_brake(void)
 {
     driver_set_brake(BRAKE_MODE_MAX);
     
-    ledc_set_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel, 0);
-    ledc_set_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel, 0);
-    ledc_update_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel);
-    ledc_update_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel);
+    // ledc_set_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel, 0);
+    // ledc_set_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel, 0);
+    // ledc_update_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel);
+    // ledc_update_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel);
+    mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, 0);  
+    mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_0, MCPWM_OPR_A, 0);  
 }
 
 void IRAM_ATTR timer_group0_isr(void *para) 
@@ -263,51 +294,55 @@ void driver_test(void* arg)
 {
     while (1) {
         timer_event_t evt;
-        if (xQueueReceive(pwm_queue, &pwm_num, 10/portTICK_RATE_MS)) {
-            if (M1_IO == pwm_num) {
-                speed_feedback[0]++;                
-            } else if (M2_IO == pwm_num) {
-                speed_feedback[1]++;
-            }
-        }
-        if (xQueueReceive(timer_queue, &evt, 10/portTICK_RATE_MS)) {
-            // ledc_update_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel);
-            // ledc_update_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel);
-            
-            ESP_LOGI(TAG, "%d,\t%d",speed_feedback[0],speed_feedback[1]);
+        if (xQueueReceive(timer_queue, &evt, 10/portTICK_PERIOD_MS)) {
+            // ESP_LOGI(TAG, "feedback: %d,\t%d",speed_feedback[0],speed_feedback[1]);
+            // ESP_LOGI(TAG, "feedback= %d", this->speed_fb);
+            this->speed_fb[0] = speed_feedback[0];
+            this->speed_fb[1] = speed_feedback[1];
             speed_feedback[0] = 0;
             speed_feedback[1] = 0;
         }
     }
 }
 
-void driver_init(void)
+void driver_init(driver_t* driver)
 {
     gpio_config_t io_conf;
     int ch;
 
-    ledc_timer_config_t ledc_timer = {
-        .duty_resolution = LEDC_TIMER_11_BIT,
-        .freq_hz = 1000,
-        .speed_mode = LEDC_LOW_SPEED_MODE,
-        .timer_num = LEDC_TIMER_1,
-        .clk_cfg = LEDC_AUTO_CLK,
-    };
-    ledc_timer_config(&ledc_timer);
-    ledc_timer.speed_mode = LEDC_HIGH_SPEED_MODE;
-    ledc_timer.timer_num = LEDC_TIMER_0;
-    ledc_timer_config(&ledc_timer);
+    this = driver;
 
-    for (ch = 0; ch < LEDC_CH_NUM; ch++) {
-        ledc_channel_config(&ledc_channel[ch]);
-    }
-    ledc_fade_func_install(0);
+    // ledc_timer_config_t ledc_timer = {
+    //     .duty_resolution = LEDC_TIMER_11_BIT,
+    //     .freq_hz = 2000,
+    //     .speed_mode = LEDC_HIGH_SPEED_MODE,
+    //     .timer_num = LEDC_TIMER_2,
+    //     .clk_cfg = LEDC_AUTO_CLK,
+    // };
+    // ledc_timer_config(&ledc_timer);
+
+    // for (ch = 0; ch < LEDC_CH_NUM; ch++) {
+    //     ledc_channel_config(&ledc_channel[ch]);
+    // }
+    // ledc_fade_func_install(0);
+    mcpwm_gpio_init(MCPWM_UNIT_0, MCPWM0A, VR1_IO);
+    mcpwm_gpio_init(MCPWM_UNIT_1, MCPWM0A, VR2_IO);
+    mcpwm_config_t pwm_config;
+    pwm_config.frequency = 4000;
+    pwm_config.cmpr_a = 0;
+    pwm_config.cmpr_b = 0;
+    pwm_config.counter_mode = MCPWM_UP_COUNTER;
+    pwm_config.duty_mode = MCPWM_DUTY_MODE_0;
+    mcpwm_init(MCPWM_UNIT_0, MCPWM_TIMER_0, &pwm_config);
+    mcpwm_init(MCPWM_UNIT_1, MCPWM_TIMER_0, &pwm_config);
 
     // set pwm 0
-    ledc_set_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel, 0);
-    ledc_set_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel, 0);
-    ledc_update_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel);
-    ledc_update_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel);
+    // ledc_set_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel, 0);
+    // ledc_set_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel, 0);
+    // ledc_update_duty(ledc_channel[0].speed_mode, ledc_channel[0].channel);
+    // ledc_update_duty(ledc_channel[1].speed_mode, ledc_channel[1].channel);
+    mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, 0);  
+    mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_0, MCPWM_OPR_A, 0);  
         
     // set brake
     dac_output_enable(DAC_CHANNEL_1);
@@ -325,19 +360,19 @@ void driver_init(void)
     // set hall feedback
     pwm_queue = xQueueCreate(10, sizeof(uint32_t));
     io_conf.intr_type = GPIO_PIN_INTR_NEGEDGE;
-    io_conf.pin_bit_mask = (1ULL<<M1_IO) | (1ULL<<M2_IO);
+    io_conf.pin_bit_mask = (1ULL<<M2_IO);//(1ULL<<M1_IO) | (1ULL<<M2_IO);
     io_conf.mode = GPIO_MODE_INPUT;
-    io_conf.pull_down_en = 1;
+    io_conf.pull_down_en = 0;
     io_conf.pull_up_en = 0;
     gpio_config(&io_conf);
     gpio_install_isr_service(ESP_INTR_FLAG_EDGE);
-    gpio_isr_handler_add(M1_IO, feedback_isr_handler, (void*)M1_IO);
-    gpio_isr_handler_add(M2_IO, feedback_isr_handler, (void*)M2_IO);
+    // gpio_isr_handler_add(M1_IO, feedback1_isr_handler, (void*)M1_IO);
+    gpio_isr_handler_add(M2_IO, feedback2_isr_handler, (void*)M2_IO);
 
     timer_queue = xQueueCreate(10, sizeof(timer_event_t));
     // example_tg0_timer_init(TIMER_0, TEST_WITHOUT_RELOAD, TIMER_INTERVAL0_SEC);
-    example_tg0_timer_init(TIMER_1, TEST_WITH_RELOAD,    1);;
+    example_tg0_timer_init(TIMER_1, TEST_WITH_RELOAD, 0.2);
 
     driver_set_direction(true);
-    xTaskCreate(driver_test, "driver_test", 2048, (void *) 0, 10, NULL);
+    xTaskCreate(driver_test, "driver_test", 4096, (void *) 0, 10, NULL);
 }

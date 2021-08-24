@@ -8,6 +8,8 @@
 #include "driver/uart.h"
 #include "driver/timer.h"
 #include "driver/gpio.h"
+#include "driver/mcpwm.h"
+#include "soc/mcpwm_periph.h"
     
 #include "esp_bt.h"
 #include "nvs_flash.h"

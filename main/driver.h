@@ -21,6 +21,7 @@ typedef struct {
     bool direction;
     uint16_t speed;
     int16_t steering;
+    uint16_t speed_fb[2];
 } driver_t;
 
 void driver_set_brake_mode(brake_mode_t mode);
@@ -34,6 +35,6 @@ void driver_set_brake(brake_mode_t brake);
 brake_mode_t driver_get_brake(void);
 void driver_emergency_brake(void);
 
-void driver_init(void);
+void driver_init(driver_t* driver);
 
 #endif /* __DRIVER_H */

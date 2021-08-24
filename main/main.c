@@ -39,9 +39,10 @@ void app_main(void)
     drive_mode_t drive_mode = DRIVE_MODE_STOP;
 
     while (1) {
+        vTaskDelay(10/portTICK_PERIOD_MS);
         switch (work) {
             case WORK_INIT:
-                driver_init();
+                driver_init(&driver);
                 battery_init();
                 ledbar_init();
                 button_init();
@@ -103,15 +104,15 @@ void app_main(void)
                                     if (packet.forward > 0) {
                                         driver_set_brake(BRAKE_MODE_NONE);
                                         temp = abs(packet.forward);
-                                        driver.speed = (15*driver.speed + temp)>>4;
+                                        driver.speed = (31*driver.speed + temp)>>5;
                                         // driver.speed = temp;
                                         driver.steering = packet.clockwise;
                                         driver_set_speed(driver.speed, driver.steering);
                                     }
                                 } else {
                                     driver_set_brake(driver_get_brake_mode());
-                                    driver.speed = (3*driver.speed)>>2;
-                                    // driver.speed = 0;
+                                    // driver.speed = (3*driver.speed)>>2;
+                                    driver.speed = 0;
                                     driver.steering = packet.clockwise;
                                     driver_set_speed(driver.speed, driver.steering);
                                     // driver_set_speed(0, 0);
@@ -132,8 +133,8 @@ void app_main(void)
                                     }
                                 } else {
                                     driver_set_brake(driver_get_brake_mode());
-                                    driver.speed = (3*driver.speed)>>2;
-                                    // driver.speed = 0;
+                                    // driver.speed = (3*driver.speed)>>2;
+                                    driver.speed = 0;
                                     driver.steering = packet.clockwise;
                                     driver_set_speed(driver.speed, driver.steering);
                                     // driver_set_speed(0, 0);
